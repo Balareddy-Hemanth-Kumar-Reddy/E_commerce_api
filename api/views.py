@@ -1,59 +1,6 @@
 from rest_framework.response import Response
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-
-from .models import Product
-from .serializers import ProductSerializer, RegisterSerializer
-from .models import Product, Cart, CartItem
-from .serializers import (
-    ProductSerializer,
-    RegisterSerializer,
-    CartSerializer,
-)
-
-@api_view(["POST"])
-def register(request):
-
-    serializer = RegisterSerializer(data=request.data)
-
-    if serializer.is_valid():
-        user = serializer.save()
-
-        return Response(
-            {
-                "message": "User registered successfully",
-                "username": user.username,
-                "email": user.email
-            },
-            status=status.HTTP_201_CREATED
-        )
-
-    return Response(
-        serializer.errors,
-        status=status.HTTP_400_BAD_REQUEST
-    )
-
-
-@api_view(["GET"])
-def hello(request):
-
-    return Response({
-        "message": "E-Commerce API is working!"
-    })
-
-
-@api_view(["GET", "POST"])
-@permission_classes([IsAuthenticated])
-def cart(request):
-
-    cart, created = Cart.objects.get_or_create(
-        user=request.user
-    )
-from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
 
 from .models import Product, Cart, CartItem
 from .serializers import (
@@ -63,12 +10,17 @@ from .serializers import (
 )
 
 
+# =========================
+# USER REGISTRATION
+# =========================
+
 @api_view(["POST"])
 def register(request):
 
     serializer = RegisterSerializer(data=request.data)
 
     if serializer.is_valid():
+
         user = serializer.save()
 
         return Response(
@@ -86,18 +38,31 @@ def register(request):
     )
 
 
+# =========================
+# HELLO API
+# =========================
+
 @api_view(["GET"])
 def hello(request):
 
-    return Response({
-        "message": "E-Commerce API is working!"
-    })
+    return Response(
+        {
+            "message": "E-Commerce API is working!"
+        }
+    )
 
+
+# =========================
+# PRODUCTS
+# =========================
 
 @api_view(["GET", "POST"])
 def products(request):
 
-    # GET → Public
+    # -------------------------
+    # GET ALL PRODUCTS
+    # -------------------------
+
     if request.method == "GET":
 
         products = Product.objects.all()
@@ -109,13 +74,18 @@ def products(request):
 
         return Response(serializer.data)
 
-    # POST → Authentication required
+    # -------------------------
+    # CREATE PRODUCT
+    # -------------------------
+
     if request.method == "POST":
 
         if not request.user.is_authenticated:
 
             return Response(
-                {"error": "Authentication required"},
+                {
+                    "error": "Authentication required"
+                },
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
@@ -138,35 +108,55 @@ def products(request):
         )
 
 
+# =========================
+# SINGLE PRODUCT
+# =========================
+
 @api_view(["GET", "PUT", "DELETE"])
 def product_detail(request, pk):
 
     try:
+
         product = Product.objects.get(pk=pk)
 
     except Product.DoesNotExist:
 
         return Response(
-            {"error": "Product not found"},
+            {
+                "error": "Product not found"
+            },
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    # GET → Public
+    # -------------------------
+    # GET PRODUCT
+    # -------------------------
+
     if request.method == "GET":
 
-        serializer = ProductSerializer(product)
+        serializer = ProductSerializer(
+            product
+        )
 
         return Response(serializer.data)
 
-    # PUT / DELETE → Authentication required
+    # -------------------------
+    # AUTHENTICATION
+    # -------------------------
+
     if not request.user.is_authenticated:
 
         return Response(
-            {"error": "Authentication required"},
+            {
+                "error": "Authentication required"
+            },
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
-    # PUT → Update
+    # -------------------------
+    # UPDATE PRODUCT
+    # -------------------------
+
     if request.method == "PUT":
 
         serializer = ProductSerializer(
@@ -178,70 +168,113 @@ def product_detail(request, pk):
 
             serializer.save()
 
-            return Response(serializer.data)
+            return Response(
+                serializer.data
+            )
 
         return Response(
             serializer.errors,
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    # DELETE → Delete
+    # -------------------------
+    # DELETE PRODUCT
+    # -------------------------
+
     if request.method == "DELETE":
 
         product.delete()
 
         return Response(
-            {"message": "Product deleted successfully"}
+            {
+                "message": "Product deleted successfully"
+            }
         )
 
+
+# =========================
+# CART
+# =========================
 
 @api_view(["GET", "POST"])
 def cart(request):
 
-    # JWT required
+    # -------------------------
+    # AUTHENTICATION
+    # -------------------------
+
     if not request.user.is_authenticated:
 
         return Response(
-            {"error": "Authentication required"},
+            {
+                "error": "Authentication required"
+            },
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
-    # Get or create user's cart
+    # -------------------------
+    # GET OR CREATE CART
+    # -------------------------
+
     cart, created = Cart.objects.get_or_create(
         user=request.user
     )
 
-    # GET → View cart
+    # -------------------------
+    # GET CART
+    # -------------------------
+
     if request.method == "GET":
 
-        serializer = CartSerializer(cart)
+        serializer = CartSerializer(
+            cart
+        )
 
-        return Response(serializer.data)
+        return Response(
+            serializer.data
+        )
 
-    # POST → Add product to cart
+    # -------------------------
+    # ADD PRODUCT TO CART
+    # -------------------------
+
     if request.method == "POST":
 
-        product_id = request.data.get("product")
-        quantity = request.data.get("quantity", 1)
+        product_id = request.data.get(
+            "product"
+        )
 
+        quantity = request.data.get(
+            "quantity",
+            1
+        )
+
+        # Validate quantity
         try:
+
             quantity = int(quantity)
 
         except (TypeError, ValueError):
 
             return Response(
-                {"error": "Quantity must be a number"},
+                {
+                    "error": "Quantity must be a number"
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         if quantity < 1:
 
             return Response(
-                {"error": "Quantity must be at least 1"},
+                {
+                    "error": "Quantity must be at least 1"
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Find product
         try:
+
             product = Product.objects.get(
                 id=product_id
             )
@@ -249,17 +282,23 @@ def cart(request):
         except Product.DoesNotExist:
 
             return Response(
-                {"error": "Product not found"},
+                {
+                    "error": "Product not found"
+                },
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        # Check stock
         if quantity > product.stock:
 
             return Response(
-                {"error": "Not enough stock"},
+                {
+                    "error": "Not enough stock"
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Create cart item
         cart_item, created = CartItem.objects.get_or_create(
             cart=cart,
             product=product,
@@ -268,7 +307,7 @@ def cart(request):
             }
         )
 
-        # Product already exists in cart
+        # If product already exists
         if not created:
 
             new_quantity = (
@@ -278,129 +317,134 @@ def cart(request):
             if new_quantity > product.stock:
 
                 return Response(
-                    {"error": "Not enough stock"},
+                    {
+                        "error": "Not enough stock"
+                    },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
             cart_item.quantity = new_quantity
+
             cart_item.save()
 
-        serializer = CartSerializer(cart)
+        serializer = CartSerializer(
+            cart
+        )
 
         return Response(
             serializer.data,
             status=status.HTTP_201_CREATED,
         )
-    if request.method == "GET":
 
-        serializer = CartSerializer(cart)
 
-        return Response(serializer.data)
+# =========================
+# CART ITEM UPDATE / DELETE
+# =========================
 
-    if request.method == "POST":
+@api_view(["PUT", "DELETE"])
+def cart_item_detail(request, pk):
 
-        product_id = request.data.get("product")
-        quantity = request.data.get("quantity", 1)
+    # -------------------------
+    # AUTHENTICATION
+    # -------------------------
 
-        try:
-            product = Product.objects.get(
-                id=product_id
-            )
-
-        except Product.DoesNotExist:
-            return Response(
-                {"error": "Product not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        if quantity < 1:
-            return Response(
-                {"error": "Quantity must be at least 1"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if quantity > product.stock:
-            return Response(
-                {"error": "Not enough stock"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        cart_item, created = CartItem.objects.get_or_create(
-            cart=cart,
-            product=product,
-            defaults={
-                "quantity": quantity
-            }
-        )
-
-        if not created:
-            new_quantity = cart_item.quantity + quantity
-
-            if new_quantity > product.stock:
-                return Response(
-                    {"error": "Not enough stock"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            cart_item.quantity = new_quantity
-            cart_item.save()
-
-        serializer = CartSerializer(cart)
-
-        return Response(
-            serializer.data,
-            status=status.HTTP_201_CREATED
-        )
-@api_view(["GET", "PUT", "DELETE"])
-def product_detail(request, pk):
-
-    try:
-        product = Product.objects.get(pk=pk)
-
-    except Product.DoesNotExist:
-        return Response(
-            {"error": "Product not found"},
-            status=status.HTTP_404_NOT_FOUND
-        )
-
-    # GET → Public
-    if request.method == "GET":
-
-        serializer = ProductSerializer(product)
-
-        return Response(serializer.data)
-
-    # PUT / DELETE → Authentication required
     if not request.user.is_authenticated:
 
         return Response(
-            {"error": "Authentication required"},
-            status=status.HTTP_401_UNAUTHORIZED
+            {
+                "error": "Authentication required"
+            },
+            status=status.HTTP_401_UNAUTHORIZED,
         )
 
-    # PUT → Update product
+    # -------------------------
+    # FIND CART ITEM
+    # -------------------------
+
+    try:
+
+        cart_item = CartItem.objects.get(
+            pk=pk,
+            cart__user=request.user
+        )
+
+    except CartItem.DoesNotExist:
+
+        return Response(
+            {
+                "error": "Cart item not found"
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    # -------------------------
+    # UPDATE QUANTITY
+    # -------------------------
+
     if request.method == "PUT":
 
-        serializer = ProductSerializer(
-            product,
-            data=request.data
+        quantity = request.data.get(
+            "quantity"
         )
 
-        if serializer.is_valid():
-            serializer.save()
+        try:
 
-            return Response(serializer.data)
+            quantity = int(quantity)
+
+        except (TypeError, ValueError):
+
+            return Response(
+                {
+                    "error": "Quantity must be a number"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if quantity < 1:
+
+            return Response(
+                {
+                    "error": "Quantity must be at least 1"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check stock
+        if quantity > cart_item.product.stock:
+
+            return Response(
+                {
+                    "error": "Not enough stock"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        cart_item.quantity = quantity
+
+        cart_item.save()
+
+        serializer = CartSerializer(
+            cart_item.cart
+        )
 
         return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST
+            serializer.data
         )
 
-    # DELETE → Delete product
+    # -------------------------
+    # DELETE CART ITEM
+    # -------------------------
+
     if request.method == "DELETE":
 
-        product.delete()
+        cart = cart_item.cart
+
+        cart_item.delete()
+
+        serializer = CartSerializer(
+            cart
+        )
 
         return Response(
-            {"message": "Product deleted successfully"}
+            serializer.data
         )
