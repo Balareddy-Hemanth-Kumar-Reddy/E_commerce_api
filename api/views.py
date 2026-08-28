@@ -2,11 +2,21 @@ from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from rest_framework import status
 
-from .models import Product, Cart, CartItem
+from django.db import transaction
+
+from .models import (
+    Product,
+    Cart,
+    CartItem,
+    Order,
+    OrderItem,
+)
+
 from .serializers import (
     ProductSerializer,
     RegisterSerializer,
     CartSerializer,
+    OrderSerializer,
 )
 
 
@@ -59,10 +69,6 @@ def hello(request):
 @api_view(["GET", "POST"])
 def products(request):
 
-    # -------------------------
-    # GET ALL PRODUCTS
-    # -------------------------
-
     if request.method == "GET":
 
         products = Product.objects.all()
@@ -73,10 +79,6 @@ def products(request):
         )
 
         return Response(serializer.data)
-
-    # -------------------------
-    # CREATE PRODUCT
-    # -------------------------
 
     if request.method == "POST":
 
@@ -128,10 +130,6 @@ def product_detail(request, pk):
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    # -------------------------
-    # GET PRODUCT
-    # -------------------------
-
     if request.method == "GET":
 
         serializer = ProductSerializer(
@@ -139,10 +137,6 @@ def product_detail(request, pk):
         )
 
         return Response(serializer.data)
-
-    # -------------------------
-    # AUTHENTICATION
-    # -------------------------
 
     if not request.user.is_authenticated:
 
@@ -152,10 +146,6 @@ def product_detail(request, pk):
             },
             status=status.HTTP_401_UNAUTHORIZED,
         )
-
-    # -------------------------
-    # UPDATE PRODUCT
-    # -------------------------
 
     if request.method == "PUT":
 
@@ -177,10 +167,6 @@ def product_detail(request, pk):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    # -------------------------
-    # DELETE PRODUCT
-    # -------------------------
-
     if request.method == "DELETE":
 
         product.delete()
@@ -199,10 +185,6 @@ def product_detail(request, pk):
 @api_view(["GET", "POST"])
 def cart(request):
 
-    # -------------------------
-    # AUTHENTICATION
-    # -------------------------
-
     if not request.user.is_authenticated:
 
         return Response(
@@ -212,17 +194,9 @@ def cart(request):
             status=status.HTTP_401_UNAUTHORIZED,
         )
 
-    # -------------------------
-    # GET OR CREATE CART
-    # -------------------------
-
     cart, created = Cart.objects.get_or_create(
         user=request.user
     )
-
-    # -------------------------
-    # GET CART
-    # -------------------------
 
     if request.method == "GET":
 
@@ -233,10 +207,6 @@ def cart(request):
         return Response(
             serializer.data
         )
-
-    # -------------------------
-    # ADD PRODUCT TO CART
-    # -------------------------
 
     if request.method == "POST":
 
@@ -249,7 +219,6 @@ def cart(request):
             1
         )
 
-        # Validate quantity
         try:
 
             quantity = int(quantity)
@@ -272,7 +241,6 @@ def cart(request):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Find product
         try:
 
             product = Product.objects.get(
@@ -288,7 +256,6 @@ def cart(request):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Check stock
         if quantity > product.stock:
 
             return Response(
@@ -298,7 +265,6 @@ def cart(request):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Create cart item
         cart_item, created = CartItem.objects.get_or_create(
             cart=cart,
             product=product,
@@ -307,7 +273,6 @@ def cart(request):
             }
         )
 
-        # If product already exists
         if not created:
 
             new_quantity = (
@@ -344,10 +309,6 @@ def cart(request):
 @api_view(["PUT", "DELETE"])
 def cart_item_detail(request, pk):
 
-    # -------------------------
-    # AUTHENTICATION
-    # -------------------------
-
     if not request.user.is_authenticated:
 
         return Response(
@@ -356,10 +317,6 @@ def cart_item_detail(request, pk):
             },
             status=status.HTTP_401_UNAUTHORIZED,
         )
-
-    # -------------------------
-    # FIND CART ITEM
-    # -------------------------
 
     try:
 
@@ -376,10 +333,6 @@ def cart_item_detail(request, pk):
             },
             status=status.HTTP_404_NOT_FOUND,
         )
-
-    # -------------------------
-    # UPDATE QUANTITY
-    # -------------------------
 
     if request.method == "PUT":
 
@@ -409,7 +362,6 @@ def cart_item_detail(request, pk):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Check stock
         if quantity > cart_item.product.stock:
 
             return Response(
@@ -431,10 +383,6 @@ def cart_item_detail(request, pk):
             serializer.data
         )
 
-    # -------------------------
-    # DELETE CART ITEM
-    # -------------------------
-
     if request.method == "DELETE":
 
         cart = cart_item.cart
@@ -448,3 +396,135 @@ def cart_item_detail(request, pk):
         return Response(
             serializer.data
         )
+
+
+# =========================
+# CHECKOUT
+# =========================
+
+@api_view(["POST"])
+def checkout(request):
+
+    if not request.user.is_authenticated:
+
+        return Response(
+            {
+                "error": "Authentication required"
+            },
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    try:
+
+        cart = Cart.objects.get(
+            user=request.user
+        )
+
+    except Cart.DoesNotExist:
+
+        return Response(
+            {
+                "error": "Cart not found"
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    cart_items = cart.items.select_related(
+        "product"
+    )
+
+    if not cart_items.exists():
+
+        return Response(
+            {
+                "error": "Cart is empty"
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # =========================
+    # CHECKOUT TRANSACTION
+    # =========================
+
+    with transaction.atomic():
+
+        total_amount = 0
+
+        # -------------------------
+        # CHECK STOCK
+        # -------------------------
+
+        for cart_item in cart_items:
+
+            product = cart_item.product
+
+            if cart_item.quantity > product.stock:
+
+                return Response(
+                    {
+                        "error": (
+                            f"Not enough stock for "
+                            f"{product.name}"
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            total_amount += (
+                product.price * cart_item.quantity
+            )
+
+        # -------------------------
+        # CREATE ORDER
+        # -------------------------
+
+        order = Order.objects.create(
+            user=request.user,
+            total_amount=total_amount,
+            status="CONFIRMED",
+        )
+
+        # -------------------------
+        # CREATE ORDER ITEMS
+        # -------------------------
+
+        for cart_item in cart_items:
+
+            product = cart_item.product
+
+            OrderItem.objects.create(
+                order=order,
+                product=product,
+                quantity=cart_item.quantity,
+                price=product.price,
+            )
+
+            # -------------------------
+            # REDUCE STOCK
+            # -------------------------
+
+            product.stock -= cart_item.quantity
+
+            product.save()
+
+        # -------------------------
+        # CLEAR CART
+        # -------------------------
+
+        cart.items.all().delete()
+
+    # -------------------------
+    # RETURN ORDER
+    # -------------------------
+
+    serializer = OrderSerializer(
+        order
+    )
+
+    return Response(
+        {
+            "message": "Checkout successful",
+            "order": serializer.data,
+        },
+        status=status.HTTP_201_CREATED,
+    )

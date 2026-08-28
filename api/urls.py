@@ -6,6 +6,7 @@ from .views import (
     product_detail,
     register,
     cart,
+    checkout,
 )
 
 
@@ -38,5 +39,10 @@ urlpatterns = [
         "cart/",
         cart,
         name="cart"
+    ),
+    path(
+    "checkout/",
+    checkout,
+    name="checkout"
     ),
 ]
